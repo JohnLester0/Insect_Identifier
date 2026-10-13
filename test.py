@@ -26,7 +26,7 @@ if not images:
     print(f"ℹ️ Note: '{image_path}' not found in current directory. Place an 'insect.jpg' image here for vision identification.\n")
 
 response = chat(
-    model='gemma4:12b',
+    model='moondream:latest',
     messages=[{
         'role': 'user',
         'content': 'What insect is this? Give the common name and scientific name.',
