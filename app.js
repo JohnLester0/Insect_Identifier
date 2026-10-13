@@ -20,7 +20,7 @@ tinyCanvas.width = tinyCanvas.height = 16;
 const tctx = tinyCanvas.getContext("2d", { willReadFrequently: true });
 
 const AUTO_INTERVAL = 3500;
-const MAX_SIDE = 1400; // High resolution for microscopic insect morphology
+const MAX_SIDE = 900; // Optimized for high morphological detail and fast CPU vision inference
 const MOTION_THRESHOLD = 8;
 
 let mediaStream = null;
@@ -251,7 +251,8 @@ async function identify(imageDataUrl) {
 
     renderResultCard(data, imageDataUrl);
     if (data.is_demo) {
-      setStatus("Specimen identified via Field Guide (Demo Mode). Start 'ollama serve' for live AI.", "warn");
+      const reasonHint = data.demo_reason ? ` [Note: ${data.demo_reason.slice(0, 90)}]` : "";
+      setStatus(`Live AI unavailable${reasonHint}. Showing offline reference guide.`, "warn");
     } else {
       setStatus(`Specimen classified successfully with Ollama AI (${data.model || "Vision"}).`);
     }

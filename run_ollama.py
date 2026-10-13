@@ -21,9 +21,10 @@ os.environ["OLLAMA_HOST"] = ollama_host
 try:
     from ollama import chat
 
-    print(f"Connecting to Ollama at {ollama_host} (model: gemma4:31b)...")
+    target_model = os.environ.get("OLLAMA_MODEL", "moondream")
+    print(f"Connecting to Ollama at {ollama_host} (model: {target_model})...")
     response = chat(
-        model='gemma4:31b',
+        model=target_model,
         messages=[{'role': 'user', 'content': 'Hello!'}],
     )
     print("Ollama Response:")
@@ -32,5 +33,5 @@ except Exception as e:
     print(f"\n⚠️ Ollama connection note: {e}")
     print("👉 To run Ollama locally:")
     print("   1. Open a terminal and run: ollama serve")
-    print("   2. In another terminal, pull the model: ollama pull gemma4:31b")
+    print(f"   2. In another terminal, pull the model: ollama pull {os.environ.get('OLLAMA_MODEL', 'moondream')}")
     print("   3. Run: python3 run_ollama.py\n")

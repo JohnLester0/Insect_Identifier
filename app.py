@@ -171,37 +171,77 @@ def parse_ai_json(text: str, provider_name: str = "ollama") -> dict:
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.MULTILINE)
         cleaned = re.sub(r"```\s*$", "", cleaned, flags=re.MULTILINE)
 
-    # Find JSON boundaries
+    # 1. Check if model explicitly states no insect / non-arthropod is present
+    not_insect_phrases = [
+        "not an insect", "no insect", "not an arthropod", "no arthropod",
+        "cannot see any insect", "unable to detect an insect", "not a bug",
+        "no specimen visible", "is_insect\": false", "is_insect: false"
+    ]
+    if any(phrase in cleaned.lower() for phrase in not_insect_phrases):
+        return {
+            "provider": provider_name,
+            "is_insect": False,
+            "reason": "No insect or arthropod recognized in this image. Move closer, focus on the specimen, and ensure good lighting.",
+            "results": [],
+        }
+
+    # 2. Extract JSON structure if present
     m = re.search(r"\{.*\}", cleaned, re.S)
     raw_json = m.group(0) if m else cleaned
-
-    # Clean trailing commas
     raw_json = re.sub(r",\s*([\]}])", r"\1", raw_json)
 
     j = None
     try:
         j = json.loads(raw_json)
     except Exception:
-        # Regex recovery fallback if LLM produces malformed JSON
-        name_m = re.search(r'"common_name"\s*:\s*"([^"]+)"', cleaned) or re.search(r'common_name\s*[:=]\s*["\']?([^"\',\n]+)', cleaned)
-        sci_m = re.search(r'"scientific_name"\s*:\s*"([^"]+)"', cleaned) or re.search(r'scientific_name\s*[:=]\s*["\']?([^"\',\n]+)', cleaned)
-        tax_m = re.search(r'"taxonomy"\s*:\s*"([^"]+)"', cleaned) or re.search(r'taxonomy\s*[:=]\s*["\']?([^"\',\n]+)', cleaned)
+        pass
+
+    # 3. Resilient field extraction (handles key-value and natural language responses)
+    if not j or not isinstance(j, dict):
+        name_m = (
+            re.search(r'"common_name"\s*:\s*"([^"]+)"', cleaned)
+            or re.search(r'common_name\s*[:=]\s*["\']?([^"\',\n]+)', cleaned, re.I)
+            or re.search(r'(?:common name|species|insect name|identified as|this is an?|shows an?)\s*[:=-]?\s*["\']?([A-Za-z0-9\s\-]+?)(?:\.|\n|\(|,|$)', cleaned, re.I)
+        )
+        sci_m = (
+            re.search(r'"scientific_name"\s*:\s*"([^"]+)"', cleaned)
+            or re.search(r'scientific_name\s*[:=]\s*["\']?([^"\',\n]+)', cleaned, re.I)
+            or re.search(r'\(([A-Z][a-z]+ [a-z]+)\)', cleaned)
+            or re.search(r'scientific name\s*[:=-]?\s*["\']?([A-Za-z0-9\s\-]+?)(?:\.|\n|\)|,|$)', cleaned, re.I)
+        )
+        tax_m = (
+            re.search(r'"taxonomy"\s*:\s*"([^"]+)"', cleaned)
+            or re.search(r'taxonomy\s*[:=]\s*["\']?([^"\',\n]+)', cleaned, re.I)
+            or re.search(r'(?:Order|Family)\s*[:=]\s*([^\n]+)', cleaned, re.I)
+        )
         summary_m = re.search(r'"summary"\s*:\s*"([^"]+)"', cleaned)
-        danger_m = re.search(r'"danger"\s*:\s*"([^"]+)"', cleaned)
+        danger_m = (
+            re.search(r'"danger"\s*:\s*"([^"]+)"', cleaned)
+            or re.search(r'danger\s*[:=]\s*["\']?(harmless|caution|dangerous)', cleaned, re.I)
+        )
 
-        if name_m or sci_m:
-            j = {
-                "is_insect": True,
-                "common_name": name_m.group(1).strip() if name_m else "Identified Specimen",
-                "scientific_name": sci_m.group(1).strip() if sci_m else "",
-                "taxonomy": tax_m.group(1).strip() if tax_m else "Order: Arthropoda",
-                "summary": summary_m.group(1).strip() if summary_m else "Specimen morphology analyzed via Ollama Vision.",
-                "danger": danger_m.group(1).strip() if danger_m else "harmless",
-                "confidence": 0.88,
-            }
+        extracted_name = name_m.group(1).strip() if name_m else ""
+        if not extracted_name or len(extracted_name) < 2:
+            first_line = cleaned.split("\n")[0][:80].strip()
+            extracted_name = first_line or "Observed Insect Specimen"
 
-    if not j:
-        raise RuntimeError("HTTP_502_Ollama output could not be parsed as JSON.")
+        # Determine danger level heuristically if not explicit
+        danger_val = "harmless"
+        lower_txt = cleaned.lower()
+        if any(w in lower_txt for w in ("deadly", "highly venomous", "dangerous sting", "medical attention")):
+            danger_val = "dangerous"
+        elif any(w in lower_txt for w in ("sting", "bite", "irritant", "caution", "wasp", "bee", "mosquito", "ant")):
+            danger_val = "caution"
+
+        j = {
+            "is_insect": True,
+            "common_name": extracted_name,
+            "scientific_name": sci_m.group(1).strip() if sci_m else "",
+            "taxonomy": tax_m.group(1).strip() if tax_m else "Class: Insecta",
+            "summary": summary_m.group(1).strip() if summary_m else cleaned[:500],
+            "danger": danger_m.group(1).strip().lower() if danger_m else danger_val,
+            "confidence": 0.88,
+        }
 
     is_insect = bool(j.get("is_insect", True))
     if not is_insect:
@@ -254,6 +294,8 @@ def parse_ai_json(text: str, provider_name: str = "ollama") -> dict:
     }
 
 KNOWN_VISION_MODELS = [
+    "moondream",
+    "moondream:latest",
     "llama3.2-vision",
     "llama3.2-vision:11b",
     "llama3.2-vision:90b",
@@ -263,7 +305,6 @@ KNOWN_VISION_MODELS = [
     "llava:34b",
     "minicpm-v",
     "qwen2.5-vl",
-    "moondream",
     "bakllava",
 ]
 
@@ -287,7 +328,7 @@ async def resolve_vision_model(url: str, preferred: str = "") -> str:
     except Exception:
         pass
 
-    return pref or "llama3.2-vision"
+    return pref or "moondream"
 
 # ---------- Ollama Vision (Official SDK + HTTP Fallback) ----------
 async def ollama_vision(mime, b64, cfg):
@@ -302,32 +343,41 @@ async def ollama_vision(mime, b64, cfg):
     if api_key and api_key.lower() not in PLACEHOLDERS:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    user_content = SYSTEM_PROMPT + "\nAnalyze and identify the insect or arthropod in this photo."
+
     # 1. Official Ollama Python SDK
+    last_err_text = ""
     if HAS_OLLAMA:
         try:
             client = ollama.AsyncClient(host=primary_url, headers=headers)
-            res = await client.chat(
-                model=model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": SYSTEM_PROMPT + "\nAnalyze and identify the insect or arthropod in this photo.",
-                        "images": [b64],
-                    }
-                ],
-                format="json",
-                options={"temperature": 0.1},
-            )
-            text = res.message.content if hasattr(res, "message") else str(res)
+            text = ""
+            try:
+                res = await client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": user_content, "images": [b64]}],
+                    format="json",
+                    options={"temperature": 0.1},
+                )
+                text = res.message.content if hasattr(res, "message") else str(res)
+            except Exception:
+                text = ""
+
+            if not text or text.strip() in ("{}", "[]", ""):
+                res = await client.chat(
+                    model=model,
+                    messages=[{"role": "user", "content": user_content, "images": [b64]}],
+                    options={"temperature": 0.1},
+                )
+                text = res.message.content if hasattr(res, "message") else str(res)
+
             parsed = parse_ai_json(text, "ollama")
             parsed["model"] = model
             return parsed
-        except Exception:
-            pass
+        except Exception as e:
+            last_err_text = str(e)
 
     # 2. Direct HTTP Fallback
     r = None
-    last_err_text = ""
     async with httpx.AsyncClient(timeout=60) as h:
         for url in urls_to_try:
             try:
@@ -526,10 +576,12 @@ async def handle_identify(image_data: str, client_ip: str):
     try:
         res = await ollama_vision(mime, b64, cfg)
         return 200, res
-    except Exception:
+    except Exception as e:
+        print(f"[Ollama Vision Error]: {e}", flush=True)
         # Fallback to local specimen field guide when Ollama daemon is offline
         demo_spec = demo_classifier()
         demo_spec["is_demo"] = True
+        demo_spec["demo_reason"] = str(e)
         return 200, demo_spec
 
 # ==============================================================================
