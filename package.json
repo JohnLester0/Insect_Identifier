@@ -1,0 +1,11 @@
+{
+  "name": "insect-scanner",
+  "version": "1.0.0",
+  "description": "Insect Scanner: live camera page + an identification API. No model training needed.",
+  "private": true,
+  "scripts": {
+    "start": "python3 app.py",
+    "dev": "python3 app.py"
+  }
+}
+

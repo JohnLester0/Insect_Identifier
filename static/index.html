@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>InsectID — Real-Time AI Insect Species Scanner</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-layout">
+  <!-- Top App Navigation & Header -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-badge" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m8 2 1.88 1.88"/>
+          <path d="M14.12 3.88 16 2"/>
+          <path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/>
+          <path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/>
+          <path d="M12 20v-9"/>
+          <path d="M6.53 9C4.6 8.8 3 7.1 3 5"/>
+          <path d="M6 13H2"/>
+          <path d="M3 21c0-2.1 1.7-3.9 3.8-4"/>
+          <path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/>
+          <path d="M22 13h-4"/>
+          <path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/>
+        </svg>
+      </div>
+      <div>
+        <h1>InsectID</h1>
+        <p class="brand-tagline">AI Entomological Field Scanner</p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <!-- Live API Connection Status Pill -->
+      <button type="button" id="connectionPill" class="conn-pill" title="Ollama Vision (gemma4:31b) — Click to refresh status">
+        <span id="connDot" class="conn-dot checking"></span>
+        <span id="connLabel">Ollama (gemma4:31b)</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Live Status Toast / Notice -->
+  <div class="status-banner" id="status" role="status">
+    Start the camera or upload a photo to identify an insect specimen.
+  </div>
+
+  <!-- Viewfinder: Camera Stream & Upload Preview -->
+  <section class="viewfinder-container" id="viewfinder">
+    <video id="video" playsinline muted></video>
+    <img id="preview" alt="Uploaded insect specimen preview" hidden>
+    
+    <!-- Animated Scanning Laser Line -->
+    <div class="scan-laser" id="laser" hidden></div>
+
+    <!-- Targeting Reticle Guide -->
+    <div class="reticle" id="reticle" aria-hidden="true">
+      <div class="reticle-label">
+        <span class="reticle-dot"></span>
+        <span id="reticleText">Center specimen in frame</span>
+      </div>
+    </div>
+
+    <!-- Empty State Graphic -->
+    <div class="viewfinder-empty" id="empty">
+      <div class="empty-graphic">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
+          <circle cx="12" cy="13" r="3"/>
+        </svg>
+      </div>
+      <p class="empty-title">Camera is Offline</p>
+      <p class="empty-hint">Click <strong>Start camera</strong> or <strong>Upload photo</strong> to begin</p>
+    </div>
+  </section>
+
+  <!-- Interactive Action Controls -->
+  <section class="controls-toolbar" aria-label="Scanner controls">
+    <button class="btn btn-primary" id="start" type="button">
+      <span class="btn-icon">🎥</span> Start camera
+    </button>
+    <button class="btn btn-danger" id="stop" type="button" hidden title="Stop camera">
+      <span class="btn-icon">⏹️</span> Stop
+    </button>
+    <button class="btn btn-secondary" id="flip" type="button" hidden title="Switch camera facing mode">
+      <span class="btn-icon">🔄</span> Flip lens
+    </button>
+    <button class="btn btn-action" id="snap" type="button" disabled>
+      <span class="btn-icon">🔍</span> Identify now
+    </button>
+    <button class="btn btn-secondary" id="pick" type="button">
+      <span class="btn-icon">📤</span> Upload photo
+    </button>
+    <label class="toggle-switch" title="Automatically analyzes specimen when camera motion stabilizes">
+      <input type="checkbox" id="auto" disabled>
+      <span class="toggle-track"></span>
+      <span class="toggle-label">Auto-scan</span>
+    </label>
+    <input type="file" id="file" accept="image/*" capture="environment" hidden>
+  </section>
+
+  <!-- Identification Result Card -->
+  <section class="result-card" id="card" hidden>
+    <div class="card-top">
+      <div class="species-header">
+        <div class="species-title-group">
+          <h2 id="name" class="species-common-name">European Honeybee</h2>
+          <p id="sci" class="species-sci-name">Apis mellifera</p>
+        </div>
+        <div id="taxonomyTag" class="taxonomy-tag">Order: Hymenoptera | Family: Apidae</div>
+      </div>
+      <div class="card-badges">
+        <span class="badge" id="danger" hidden>Harmless</span>
+        <span class="badge badge-demo" id="demoBadge" hidden>🧪 Demo Specimen</span>
+      </div>
+    </div>
+
+    <!-- Confidence Gauge -->
+    <div class="confidence-container">
+      <div class="confidence-info">
+        <span class="confidence-label">Taxonomic Match Probability</span>
+        <strong id="conf" class="confidence-val">96% Confident</strong>
+      </div>
+      <div class="confidence-track" aria-hidden="true">
+        <div class="confidence-fill" id="bar"></div>
+      </div>
+    </div>
+
+    <!-- Danger / Safety Details -->
+    <div class="safety-box" id="safetyBox" hidden>
+      <span class="safety-icon" id="safetyIcon">🛡️</span>
+      <div class="safety-content">
+        <strong id="safetyTitle">Safety Assessment</strong>
+        <p id="safetyReason" class="safety-reason"></p>
+      </div>
+    </div>
+
+    <!-- Entomological Anatomy & Summary -->
+    <div class="section-block">
+      <h3 class="section-title">Anatomical Distinctions</h3>
+      <p id="info" class="species-desc"></p>
+    </div>
+
+    <!-- Habitat & Ecological Role -->
+    <div class="section-block" id="habitatBlock" hidden>
+      <h3 class="section-title">Habitat & Ecological Role</h3>
+      <p id="habitat" class="species-habitat"></p>
+    </div>
+
+    <!-- Field Observer Tip -->
+    <div class="tip-callout" id="tipBox" hidden>
+      <span class="tip-icon">💡</span>
+      <div>
+        <strong>Field Observation Tip</strong>
+        <p class="tip-text" id="tip"></p>
+      </div>
+    </div>
+
+    <!-- Lookalike Candidates -->
+    <div class="alts-block" id="altsBlock" hidden>
+      <h3 class="section-title">Common Lookalikes & Differences</h3>
+      <ul class="alts-list" id="alts"></ul>
+    </div>
+
+    <!-- External Reference Button -->
+    <div class="card-footer">
+      <a id="link" class="ext-link-btn" target="_blank" rel="noopener" hidden>
+        📚 Open Specimen on Wikipedia / iNaturalist →
+      </a>
+    </div>
+  </section>
+
+  <!-- Scan History Drawer / Section -->
+  <section class="history-section" id="historyBox" hidden>
+    <div class="history-header">
+      <div class="history-title-group">
+        <h3>Recent Field Observations</h3>
+        <span class="history-count" id="historyCount">0</span>
+      </div>
+      <button type="button" id="clearHistory" class="btn-text">Clear all</button>
+    </div>
+    <ul id="history" class="history-grid"></ul>
+  </section>
+
+  <!-- Legal & Field Safety Notice -->
+  <footer class="app-footer">
+    <p class="disclaimer-text">
+      Biological identification is performed via visual AI analysis and calibrated entomological heuristics. Verify critical health or pest decisions regarding venomous stings, agricultural pests, or disease vectors with local qualified experts.
+    </p>
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
