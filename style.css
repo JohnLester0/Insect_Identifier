@@ -538,6 +538,46 @@ video.on ~ .reticle,
   to { opacity: 1; transform: translateY(0); }
 }
 
+.demo-notice-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #fef3c7;
+}
+
+.demo-notice-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.demo-notice-content strong {
+  display: block;
+  color: #fcd34d;
+  font-size: 12.5px;
+  margin-bottom: 2px;
+}
+
+.demo-notice-content p {
+  margin: 0;
+  color: #fde68a;
+}
+
+.demo-notice-content code {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #fbbf24;
+  font-family: monospace;
+}
+
 .card-top {
   display: flex;
   justify-content: space-between;

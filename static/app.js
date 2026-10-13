@@ -250,7 +250,11 @@ async function identify(imageDataUrl) {
     }
 
     renderResultCard(data, imageDataUrl);
-    setStatus(data.is_demo ? "Specimen identified (Demo guide mode — run 'ollama serve' for live AI)." : "Specimen classified successfully with Ollama AI.");
+    if (data.is_demo) {
+      setStatus("Specimen identified via Field Guide (Demo Mode). Start 'ollama serve' for live AI.", "warn");
+    } else {
+      setStatus(`Specimen classified successfully with Ollama AI (${data.model || "Vision"}).`);
+    }
     await fetchConnectionStatus();
   } catch (err) {
     if (err.message === "Failed to fetch" || err.name === "TypeError") {
@@ -316,8 +320,13 @@ function renderResultCard(data, thumbnailDataUrl) {
     safetyBox.hidden = true;
   }
 
-  // Demo badge
-  $("demoBadge").hidden = !data.is_demo;
+  // Demo badge & warning notice
+  const isDemo = Boolean(data.is_demo);
+  $("demoBadge").hidden = !isDemo;
+  const demoBanner = $("demoNoticeBanner");
+  if (demoBanner) {
+    demoBanner.hidden = !isDemo;
+  }
 
   // Description / Anatomy
   $("info").textContent = data.info || "Specimen features align with anatomical database records.";

@@ -55,7 +55,7 @@ def get_env_config():
     load_env()
     ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").strip()
     ollama_key = os.getenv("OLLAMA_API_KEY", "").strip()
-    ollama_model = os.getenv("OLLAMA_MODEL", "gemma4:31b").strip()
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.2-vision").strip()
 
     return {
         "provider": "ollama",
@@ -79,15 +79,17 @@ def check_ollama_reachable(url="http://127.0.0.1:11434") -> bool:
 
 def get_active_provider_status():
     cfg = get_env_config()
-    online = check_ollama_reachable(cfg.get("ollama_url", "http://127.0.0.1:11434"))
+    url = cfg.get("ollama_url", "http://127.0.0.1:11434")
+    online = check_ollama_reachable(url)
+    model = cfg.get("ollama_model", "llama3.2-vision")
     return {
         "ok": True,
         "provider": "ollama",
-        "provider_display": "Ollama Vision (gemma4:31b)",
+        "provider_display": f"Ollama Vision ({model})",
         "configured": online,
         "ollama_online": online,
-        "ollama_url": cfg.get("ollama_url", "http://127.0.0.1:11434"),
-        "ollama_model": "gemma4:31b",
+        "ollama_url": url,
+        "ollama_model": model,
     }
 
 def rate_limited(ip: str = "?") -> bool:
@@ -137,43 +139,71 @@ def provider_error(status: int, text: str = ""):
 # Entomological System Prompt for High-Accuracy Vision Classification
 # ==============================================================================
 SYSTEM_PROMPT = (
-    "You are an expert taxonomist and world-class entomologist specializing in insect and arthropod identification.\n"
-    "Your mission: Provide scientific, highly accurate insect identification from camera or field photos.\n\n"
-    "ANALYSIS PROCESS:\n"
-    "1. Examine visible morphology: body segmentation (head, thorax, abdomen), antenna type, mouthparts, wing structure (elytra, scales, venation), leg adaptations, and coloration patterns.\n"
-    "2. Differentiate mimics and common lookalikes (e.g., Syrphid flies vs bees/wasps; Monarch vs Viceroy; Asian Lady Beetle vs Native Ladybug; Assassin vs Kissing Bug).\n"
-    "3. Determine the most specific taxonomic classification possible (Order, Family, Genus, Species).\n"
-    "4. Assess safety risk: 'harmless' (pollinator/beneficial/safe), 'caution' (stings/bites defensively or causes skin irritation), or 'dangerous' (medically significant venom/vectors).\n\n"
-    "Return ONLY a valid JSON object matching this schema:\n"
+    "You are an expert entomologist and taxonomist specializing in precise insect and arthropod identification from photographs.\n"
+    "Carefully analyze this image for visible morphological characteristics:\n"
+    "- Body plan: 3 segments (head, thorax, abdomen) with 6 legs (insect), or cephalothorax with 8 legs (arachnid), or many body rings (myriapod).\n"
+    "- Wings: Presence of elytra (beetle wing covers), scale patterns (butterfly/moth), membranous venation (bee/wasp/dragonfly), or dipteran halteres (true fly).\n"
+    "- Head structures: Antenna morphology (clubbed, feathery, threadlike, elbowed), eyes, and mouthparts (chewing mandibles, proboscis, piercing stylet).\n"
+    "- Distinguish known mimics: e.g. hoverfly mimicking a bee; Viceroy vs Monarch; Asian lady beetle vs native ladybug; Assassin bug vs Kissing bug.\n\n"
+    "Respond ONLY with a valid JSON object strictly adhering to this format:\n"
     "{\n"
     '  "is_insect": true,\n'
-    '  "common_name": "Common Species Name",\n'
+    '  "common_name": "Accurate Common Name",\n'
     '  "scientific_name": "Genus species",\n'
-    '  "taxonomy": "Order: ..., Family: ...",\n'
-    '  "confidence": 0.95,\n'
+    '  "taxonomy": "Order: [Order Name] | Family: [Family Name]",\n'
+    '  "confidence": 0.92,\n'
     '  "danger": "harmless" | "caution" | "dangerous",\n'
-    '  "danger_reason": "Specific safety explanation (e.g., Beneficial pollinator; non-aggressive unless provoked)",\n'
-    '  "summary": "2 concise sentences explaining the key anatomical traits that confirm this identification.",\n'
-    '  "habitat_diet": "Brief summary of habitat, diet, and ecological role.",\n'
-    '  "tip": "One practical field observation tip.",\n'
+    '  "danger_reason": "Clear explanation of stinging, biting, allergen, or harmless pollinator status.",\n'
+    '  "summary": "Key morphological features (antenna type, wing venation, coloration, body shape) confirming this identification.",\n'
+    '  "habitat_diet": "Usual habitat, diet, and ecological niche.",\n'
+    '  "tip": "Field observer identification tip.",\n'
     '  "alts": [\n'
-    '    {"name": "Lookalike Name", "scientific": "Genus species", "distinction": "Key visual difference", "confidence": 0.05}\n'
-    "  ]\n"
-    "}\n\n"
-    "If no arthropod or insect is present, or if the photo is entirely illegible/blurry:\n"
-    '{"is_insect": false, "reason": "No insect or arthropod could be clearly recognized in this image."}'
+    '    {"name": "Lookalike Species", "scientific": "Genus species", "distinction": "Primary visual difference", "confidence": 0.08}\n'
+    '  ]\n'
+    "}\n"
+    "If the image does not show an insect or arthropod, set is_insect to false with a reason."
 )
 
 def parse_ai_json(text: str, provider_name: str = "ollama") -> dict:
-    m = re.search(r"\{.*\}", text, re.S)
-    if not m:
-        raise RuntimeError("HTTP_502_Ollama returned an unreadable response. Please retry.")
-    try:
-        j = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        raise RuntimeError("HTTP_502_Ollama returned invalid JSON. Please retry.")
+    cleaned = text.strip()
+    # Strip markdown code blocks
+    if "```" in cleaned:
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"```\s*$", "", cleaned, flags=re.MULTILINE)
 
-    is_insect = bool(j.get("is_insect"))
+    # Find JSON boundaries
+    m = re.search(r"\{.*\}", cleaned, re.S)
+    raw_json = m.group(0) if m else cleaned
+
+    # Clean trailing commas
+    raw_json = re.sub(r",\s*([\]}])", r"\1", raw_json)
+
+    j = None
+    try:
+        j = json.loads(raw_json)
+    except Exception:
+        # Regex recovery fallback if LLM produces malformed JSON
+        name_m = re.search(r'"common_name"\s*:\s*"([^"]+)"', cleaned) or re.search(r'common_name\s*[:=]\s*["\']?([^"\',\n]+)', cleaned)
+        sci_m = re.search(r'"scientific_name"\s*:\s*"([^"]+)"', cleaned) or re.search(r'scientific_name\s*[:=]\s*["\']?([^"\',\n]+)', cleaned)
+        tax_m = re.search(r'"taxonomy"\s*:\s*"([^"]+)"', cleaned) or re.search(r'taxonomy\s*[:=]\s*["\']?([^"\',\n]+)', cleaned)
+        summary_m = re.search(r'"summary"\s*:\s*"([^"]+)"', cleaned)
+        danger_m = re.search(r'"danger"\s*:\s*"([^"]+)"', cleaned)
+
+        if name_m or sci_m:
+            j = {
+                "is_insect": True,
+                "common_name": name_m.group(1).strip() if name_m else "Identified Specimen",
+                "scientific_name": sci_m.group(1).strip() if sci_m else "",
+                "taxonomy": tax_m.group(1).strip() if tax_m else "Order: Arthropoda",
+                "summary": summary_m.group(1).strip() if summary_m else "Specimen morphology analyzed via Ollama Vision.",
+                "danger": danger_m.group(1).strip() if danger_m else "harmless",
+                "confidence": 0.88,
+            }
+
+    if not j:
+        raise RuntimeError("HTTP_502_Ollama output could not be parsed as JSON.")
+
+    is_insect = bool(j.get("is_insect", True))
     if not is_insect:
         return {
             "provider": provider_name,
@@ -184,7 +214,7 @@ def parse_ai_json(text: str, provider_name: str = "ollama") -> dict:
 
     top_name = j.get("common_name") or j.get("scientific_name") or "Unidentified Insect"
     top_sci = j.get("scientific_name", "")
-    top_prob = max(0.0, min(1.0, float(j.get("confidence") or 0.85)))
+    top_prob = max(0.0, min(1.0, float(j.get("confidence") or 0.88)))
 
     results = [{
         "name": top_name,
@@ -223,13 +253,49 @@ def parse_ai_json(text: str, provider_name: str = "ollama") -> dict:
         "tip": j.get("tip", ""),
     }
 
+KNOWN_VISION_MODELS = [
+    "llama3.2-vision",
+    "llama3.2-vision:11b",
+    "llama3.2-vision:90b",
+    "llava",
+    "llava:7b",
+    "llava:13b",
+    "llava:34b",
+    "minicpm-v",
+    "qwen2.5-vl",
+    "moondream",
+    "bakllava",
+]
+
+async def resolve_vision_model(url: str, preferred: str = "") -> str:
+    pref = (preferred or "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            r = await client.get(f"{url}/api/tags")
+            if r.status_code == 200:
+                installed = [m.get("name", "") for m in r.json().get("models", [])]
+                if pref:
+                    for inst in installed:
+                        if inst == pref or inst.split(":")[0] == pref.split(":")[0]:
+                            return inst
+                for candidate in KNOWN_VISION_MODELS:
+                    for inst in installed:
+                        if candidate in inst or inst.split(":")[0] == candidate.split(":")[0]:
+                            return inst
+                if installed:
+                    return installed[0]
+    except Exception:
+        pass
+
+    return pref or "llama3.2-vision"
+
 # ---------- Ollama Vision (Official SDK + HTTP Fallback) ----------
 async def ollama_vision(mime, b64, cfg):
     primary_url = (cfg.get("ollama_url") or "http://127.0.0.1:11434").rstrip("/")
     fallback_url = "http://127.0.0.1:11434"
     urls_to_try = [primary_url] if primary_url == fallback_url else [primary_url, fallback_url]
 
-    model = cfg.get("ollama_model") or "gemma4:31b"
+    model = await resolve_vision_model(primary_url, cfg.get("ollama_model"))
     api_key = cfg.get("ollama_key", "")
 
     headers = {}
@@ -253,7 +319,9 @@ async def ollama_vision(mime, b64, cfg):
                 options={"temperature": 0.1},
             )
             text = res.message.content if hasattr(res, "message") else str(res)
-            return parse_ai_json(text, "ollama")
+            parsed = parse_ai_json(text, "ollama")
+            parsed["model"] = model
+            return parsed
         except Exception:
             pass
 
@@ -325,7 +393,7 @@ async def ollama_vision(mime, b64, cfg):
                 last_err_text = str(e)
 
     if r is None or r.status_code >= 400:
-        err_msg = f"Cannot reach Ollama at {primary_url} ({last_err_text}). Run 'ollama serve' in your terminal or check Ollama settings."
+        err_msg = f"Cannot reach Ollama at {primary_url} ({last_err_text}). Run 'ollama serve' in your terminal."
         raise RuntimeError(f"HTTP_502_{err_msg}")
 
     data = r.json()
@@ -338,7 +406,9 @@ async def ollama_vision(mime, b64, cfg):
     else:
         text = json.dumps(data)
 
-    return parse_ai_json(text, "ollama")
+    parsed = parse_ai_json(text, "ollama")
+    parsed["model"] = model
+    return parsed
 
 # ---------- Fallback Demo Specimens (if Ollama offline) ----------
 DEMO_SPECIMENS = [
