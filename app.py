@@ -294,6 +294,9 @@ def parse_ai_json(text: str, provider_name: str = "ollama") -> dict:
     }
 
 KNOWN_VISION_MODELS = [
+    "gemma4:12b",
+    "gemma4:31b",
+    "gemma4",
     "moondream",
     "moondream:latest",
     "llama3.2-vision",
@@ -328,7 +331,7 @@ async def resolve_vision_model(url: str, preferred: str = "") -> str:
     except Exception:
         pass
 
-    return pref or "moondream"
+    return pref or "gemma4:12b"
 
 # ---------- Ollama Vision (Official SDK + HTTP Fallback) ----------
 async def ollama_vision(mime, b64, cfg):
@@ -343,7 +346,7 @@ async def ollama_vision(mime, b64, cfg):
     if api_key and api_key.lower() not in PLACEHOLDERS:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    user_content = SYSTEM_PROMPT + "\nAnalyze and identify the insect or arthropod in this photo."
+    user_content = "What insect is this? Give the common name and scientific name.\n" + SYSTEM_PROMPT
 
     # 1. Official Ollama Python SDK
     last_err_text = ""

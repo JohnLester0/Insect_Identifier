@@ -6,31 +6,32 @@ _venv_site = Path(__file__).parent / "venv" / "lib" / f"python{sys.version_info.
 if _venv_site.exists() and str(_venv_site) not in sys.path:
     sys.path.insert(0, str(_venv_site))
 
-# Load .env configuration before importing ollama
+# Load .env if present
 if os.path.exists(".env"):
     for line in open(".env", encoding="utf-8"):
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
-            os.environ[k.strip()] = v.strip().strip("'\"")
+            os.environ.setdefault(k.strip(), v.strip().strip("'\""))
 
-# Ensure OLLAMA_HOST is set to the configured URL (defaults to http://127.0.0.1:11434)
-ollama_host = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
-os.environ["OLLAMA_HOST"] = ollama_host
+if "OLLAMA_URL" in os.environ:
+    os.environ["OLLAMA_HOST"] = os.environ["OLLAMA_URL"]
 
-try:
-    from ollama import chat
+from ollama import chat
 
-    print(f"Connecting to Ollama at {ollama_host}...")
-    response = chat(
-        model=os.environ.get('OLLAMA_MODEL', 'gemma4:31b'),
-        messages=[{'role': 'user', 'content': 'Hello!'}],
-    )
-    print("Ollama Response:")
-    print(response.message.content)
-except Exception as e:
-    print(f"\n⚠️ Ollama connection note: {e}")
-    print("👉 To run Ollama locally:")
-    print("   1. Open a terminal and run: ollama serve")
-    print("   2. In another terminal, pull the model: ollama pull gemma4:31b")
-    print("   3. Run: python3 test.py\n")
+image_path = 'insect.jpg'
+images = [image_path] if os.path.exists(image_path) else []
+
+if not images:
+    print(f"ℹ️ Note: '{image_path}' not found in current directory. Place an 'insect.jpg' image here for vision identification.\n")
+
+response = chat(
+    model='gemma4:12b',
+    messages=[{
+        'role': 'user',
+        'content': 'What insect is this? Give the common name and scientific name.',
+        'images': images,
+    }],
+)
+
+print(response.message.content)
